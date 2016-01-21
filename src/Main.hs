@@ -1,22 +1,24 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards   #-}
 module Main where
 
-import qualified Data.ByteString       as ByteString (writeFile)
-import qualified Data.ByteString.Char8 as ByteString (pack, putStr)
-import qualified Data.HashMap.Strict   as HashMap (insert, lookup)
-import qualified Data.Text             as Text (pack)
-import qualified Data.Vector           as Vector (cons)
-import           Data.Yaml             hiding (Parser)
+import qualified Data.Aeson                 as Aeson
+import qualified Data.ByteString            as ByteString (writeFile)
+import qualified Data.ByteString.Char8      as ByteString (pack, putStr)
+import qualified Data.ByteString.Lazy.Char8 as ByteStringL (putStrLn)
+import qualified Data.HashMap.Strict        as HashMap (insert, lookup)
+import qualified Data.Text                  as Text (pack)
+import qualified Data.Vector                as Vector (cons)
+import           Data.Yaml                  hiding (Parser)
 import           Options.Applicative
 import           System.Directory
-import           System.Exit           (exitFailure)
+import           System.Exit                (exitFailure)
 import           System.FilePath
-import           System.IO             (hPutStrLn, stderr)
+import           System.IO                  (hPutStrLn, stderr)
 
 data Command = CommandAdd String String
              | CommandGet String
              | CommandSet String String
+             | CommandJSON
   deriving(Show)
 
 data CommonOptions = CommonOptions { coptStdout :: Bool
@@ -32,20 +34,20 @@ commonOptions = CommonOptions
           <$> switch (long "stdout"
                       <> short 'o'
                       <> help "Output data to standard output")
-          <*> optional (strOption (long "file"
-                                   <> short 'f'
-                                   <> help "Input file '-' for stdin"
-                                   <> metavar "FILE"
-                                  ))
+          <*> optional (argument str (help "Input file '-' for stdin"
+                                      <> metavar "FILE"
+                                     ))
 
 options :: Parser Options
-options = Options <$> subparser
-              (command "add" (info' cmdAdd
-                              (progDesc "Add an item to a list"))
-               <> command "get" (info' cmdGet
-                                 (progDesc "Get a key"))
-               <> command "set" (info' cmdSet
-                                 (progDesc "Set a key")))
+options = Options
+    <$> subparser (command "add" (info' cmdAdd
+                                  (progDesc "Add an item to a list"))
+                   <> command "get" (info' cmdGet
+                                     (progDesc "Get a key"))
+                   <> command "set" (info' cmdSet
+                                     (progDesc "Set a key"))
+                   <> command "json" (info' cmdJson
+                                      (progDesc "Output input as JSON")))
   where
     info' p = info ((,) <$> p <*> commonOptions)
     cmdAdd = CommandAdd
@@ -56,6 +58,7 @@ options = Options <$> subparser
     cmdSet = CommandSet
         <$> argument str (metavar "KEY")
         <*> argument str (metavar "VALUE")
+    cmdJson = pure CommandJSON
 
 main :: IO ()
 main = execParser opts >>= run
@@ -82,12 +85,18 @@ run (Options (optCommand, CommonOptions coptStdout (Just coptPath))) = do
                 CommandAdd k v -> runAdd input k v
                 CommandSet k v -> runSet input k v
                 CommandGet k -> runGet input k
+                CommandJSON -> runJSON input
             finish r
   where
     finish :: Maybe Value -> IO ()
     finish Nothing = return ()
     finish (Just o) | coptStdout = ByteString.putStr (encode o)
     finish (Just o) = ByteString.writeFile coptPath (encode o)
+
+runJSON :: ToJSON a => a -> IO (Maybe a1)
+runJSON v = do
+    ByteStringL.putStrLn (Aeson.encode v)
+    return Nothing
 
 runAdd :: Monad m => Value -> String -> String -> m (Maybe Value)
 runAdd (Object o) k v = case HashMap.lookup (Text.pack k) o of

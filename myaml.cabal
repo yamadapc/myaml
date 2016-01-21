@@ -20,7 +20,8 @@ executable myaml
   main-is:             Main.hs
   -- other-modules:       
   -- other-extensions:    
-  build-depends:       base >=4.8 && <4.9
+  build-depends:       aeson >= 0.8.0.2
+                     , base >=4.8 && <4.9
                      , bytestring
                      , directory >= 1.2.2.0
                      , filepath >= 1.4.0.0
