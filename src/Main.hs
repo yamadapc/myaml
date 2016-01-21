@@ -108,5 +108,7 @@ runGet (Object o) k = case HashMap.lookup (Text.pack k) o of
         return Nothing
 runGet _ _ = error "Not implemented"
 
-runSet :: t
-runSet = error "Not implemented"
+runSet :: Monad m => Value -> String -> String -> m (Maybe Value)
+runSet (Object o) k v =
+    return $ Just (Object (HashMap.insert (Text.pack k) (String (Text.pack v)) o))
+runSet _ _ _ = error "Not implemented"
