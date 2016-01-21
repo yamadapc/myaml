@@ -9,7 +9,9 @@ import qualified Data.Text             as Text (pack)
 import qualified Data.Vector           as Vector (cons)
 import           Data.Yaml             hiding (Parser)
 import           Options.Applicative
+import           System.Directory
 import           System.Exit           (exitFailure)
+import           System.FilePath
 import           System.IO             (hPutStrLn, stderr)
 
 data Command = CommandAdd String String
@@ -17,33 +19,43 @@ data Command = CommandAdd String String
              | CommandSet String String
   deriving(Show)
 
-data Options = Options { optStdout  :: Bool
-                       , optPath    :: String
-                       , optCommand :: Command
-                       }
+data CommonOptions = CommonOptions { coptStdout :: Bool
+                                   , coptPath   :: Maybe String
+                                   }
   deriving(Show)
 
-options :: Parser Options
-options = Options
+data Options = Options (Command, CommonOptions)
+  deriving(Show)
+
+commonOptions :: Parser CommonOptions
+commonOptions = CommonOptions
           <$> switch (long "stdout"
                       <> short 'o'
                       <> help "Output data to standard output")
-          <*> strOption (long "file"
-                         <> short 'f'
-                         <> help "Input file '-' for stdin"
-                         <> metavar "FILE")
-          <*> subparser
-              (command "add" (info (CommandAdd
-                                    <$> argument str (metavar "KEY")
-                                    <*> argument str (metavar "VALUE"))
+          <*> optional (strOption (long "file"
+                                   <> short 'f'
+                                   <> help "Input file '-' for stdin"
+                                   <> metavar "FILE"
+                                  ))
+
+options :: Parser Options
+options = Options <$> subparser
+              (command "add" (info' cmdAdd
                               (progDesc "Add an item to a list"))
-               <> command "get" (info (CommandGet
-                                       <$> argument str (metavar "KEY"))
+               <> command "get" (info' cmdGet
                                  (progDesc "Get a key"))
-               <> command "set" (info (CommandSet
-                                       <$> argument str (metavar "KEY")
-                                       <*> argument str (metavar "VALUE"))
+               <> command "set" (info' cmdSet
                                  (progDesc "Set a key")))
+  where
+    info' p = info ((,) <$> p <*> commonOptions)
+    cmdAdd = CommandAdd
+        <$> argument str (metavar "KEY")
+        <*> argument str (metavar "VALUE")
+    cmdGet = CommandGet
+        <$> argument str (metavar "KEY")
+    cmdSet = CommandSet
+        <$> argument str (metavar "KEY")
+        <*> argument str (metavar "VALUE")
 
 main :: IO ()
 main = execParser opts >>= run
@@ -51,12 +63,18 @@ main = execParser opts >>= run
     opts = info (helper <*> options) (fullDesc <> progDesc "Manipulate YAML")
 
 run :: Options -> IO ()
-run Options{..} | optPath == "-" = error "Not implemented"
-run Options{..} = do
-    einput <- decodeFileEither optPath :: IO (Either ParseException Value)
+run (Options (optCommand, CommonOptions coptStdout Nothing)) = do
+    cwd <- getCurrentDirectory
+    fs <- getDirectoryContents cwd
+    case filter ((== ".yaml") . takeExtension) fs of
+        [] -> error "Couldn't find a .yaml file in the current directory"
+        (f:_) -> run (Options (optCommand, CommonOptions coptStdout (Just f)))
+run (Options (optCommand, CommonOptions coptStdout (Just coptPath))) = do
+    einput <- decodeFileEither coptPath
+        :: IO (Either ParseException Value)
     case einput of
         Left e -> do
-            hPutStrLn stderr ("Failed to parse " ++ optPath)
+            hPutStrLn stderr ("Failed to parse " ++ coptPath)
             hPutStrLn stderr (prettyPrintParseException e)
             exitFailure
         Right input -> do
@@ -68,8 +86,8 @@ run Options{..} = do
   where
     finish :: Maybe Value -> IO ()
     finish Nothing = return ()
-    finish (Just o) | optStdout = ByteString.putStr (encode o)
-    finish (Just o) = ByteString.writeFile optPath (encode o)
+    finish (Just o) | coptStdout = ByteString.putStr (encode o)
+    finish (Just o) = ByteString.writeFile coptPath (encode o)
 
 runAdd :: Monad m => Value -> String -> String -> m (Maybe Value)
 runAdd (Object o) k v = case HashMap.lookup (Text.pack k) o of

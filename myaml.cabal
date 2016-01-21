@@ -22,6 +22,8 @@ executable myaml
   -- other-extensions:    
   build-depends:       base >=4.8 && <4.9
                      , bytestring
+                     , directory >= 1.2.2.0
+                     , filepath >= 1.4.0.0
                      , optparse-applicative
                      , text
                      , text >= 1.2.1.3
